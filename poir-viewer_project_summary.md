@@ -18,6 +18,10 @@
   - src/
     - assets/
       - react.svg
+    - components/
+      - ImageThumbnail.tsx
+      - ImageViewer.tsx
+      - ResourcesConfig.tsx
     - App.css
     - App.tsx
     - main.tsx
@@ -44,8 +48,11 @@
       - icon.ico
       - icon.png
     - src/
+      - config.rs
+      - image.rs
       - lib.rs
       - main.rs
+    - target/
     - .gitignore
     - Cargo.toml
     - build.rs
@@ -68,26 +75,13 @@
 ## スタートデモアプリ済み
 
 - dirダイアログから選択したファイルの内容（テキスト）を画面表示する
-- "\\wsl.localhost\Ubuntu-24.04\home\wsluser\.claude.json" このファイルの中身を起動時に自動ロード、表示
-- 
+- "~\.claude.json" このファイルの中身を起動時に自動ロード、表示
+- resources.json を設定ファイルとして扱う
+- resources.json から画像を読み込み表示する
 
 # NEXT
 
-## 下記ファイルの自動読み込み表示したい
-
-（プロジェクトルート）resources.json
-
-{
-    "id": "allviewer-resources",
-    "name": "AllViewer画像リソース",
-    "filters": {
-      "include": [
-        "\\\\wsl.localhost\\Ubuntu-24.04\\home\\wsluser\\temp-image\\plugin-viewers-image"
-      ],
-      "exclude": []
-    }
-}
-
+## 
 ```
 
 ### .github/workflows/build.yml
@@ -515,6 +509,1262 @@ jobs:
 
 ```
 
+### src/components/ImageThumbnail.tsx
+
+```
+import React, { useState } from 'react';
+import { convertFileSrc } from "@tauri-apps/api/core";
+
+// 画像情報の型定義
+export interface ImageInfo {
+  path: string;
+  name: string;
+  size: number;
+  modified: number;
+  extension: string;
+}
+
+interface ImageThumbnailProps {
+  image: ImageInfo;
+  selected: boolean;
+  onClick: (image: ImageInfo) => void;
+  size?: 'small' | 'medium' | 'large';
+}
+
+/**
+ * 画像サムネイルを表示するコンポーネント
+ */
+export function ImageThumbnail({ image, selected, onClick, size = 'medium' }: ImageThumbnailProps) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  // 画像のローカルパスをassetプロトコルに変換
+  const imageUrl = convertFileSrc(image.path);
+
+  // サイズに応じたスタイル
+  const sizeStyles = {
+    small: { width: '100px', height: '100px' },
+    medium: { width: '150px', height: '150px' },
+    large: { width: '200px', height: '200px' },
+  };
+
+  // 画像ロード完了時のハンドラ
+  const handleImageLoad = () => {
+    setLoading(false);
+    setError(false);
+  };
+
+  // 画像ロードエラー時のハンドラ
+  const handleImageError = () => {
+    setLoading(false);
+    setError(true);
+  };
+
+  // ファイル名を短縮表示（長すぎる場合）
+  const displayName = () => {
+    if (image.name.length > 20) {
+      return image.name.substring(0, 17) + '...';
+    }
+    return image.name;
+  };
+
+  // 日付をフォーマット
+  const formatDate = (timestamp: number) => {
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleDateString();
+  };
+
+  return (
+    <div 
+      className={`image-thumbnail ${selected ? 'selected' : ''}`}
+      onClick={() => onClick(image)}
+      title={`${image.name}\n${formatDate(image.modified)}\n${(image.size / 1024).toFixed(1)} KB`}
+    >
+      <div className="thumbnail-container" style={sizeStyles[size]}>
+        {loading && (
+          <div className="loading-indicator">
+            <span>読み込み中...</span>
+          </div>
+        )}
+        
+        {error ? (
+          <div className="error-indicator">
+            <span>!</span>
+          </div>
+        ) : (
+          <img 
+            src={imageUrl} 
+            alt={image.name}
+            onLoad={handleImageLoad}
+            onError={handleImageError}
+            style={{ display: loading ? 'none' : 'block' }}
+          />
+        )}
+      </div>
+      
+      <div className="thumbnail-info">
+        <span className="thumbnail-name">{displayName()}</span>
+        <span className="thumbnail-date">{formatDate(image.modified)}</span>
+      </div>
+
+      <style>{`
+        .image-thumbnail {
+          display: flex;
+          flex-direction: column;
+          margin: 8px;
+          border-radius: 4px;
+          overflow: hidden;
+          cursor: pointer;
+          background-color: #f5f5f5;
+          border: 2px solid transparent;
+          transition: all 0.2s ease;
+        }
+        
+        .image-thumbnail:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .image-thumbnail.selected {
+          border-color: #2196f3;
+          box-shadow: 0 2px 8px rgba(33, 150, 243, 0.4);
+        }
+        
+        .thumbnail-container {
+          position: relative;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          background-color: #e0e0e0;
+        }
+        
+        .thumbnail-container img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        
+        .loading-indicator,
+        .error-indicator {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        
+        .loading-indicator {
+          background-color: rgba(0, 0, 0, 0.1);
+          color: #555;
+        }
+        
+        .error-indicator {
+          background-color: rgba(244, 67, 54, 0.1);
+          color: #f44336;
+          font-size: 32px;
+          font-weight: bold;
+        }
+        
+        .thumbnail-info {
+          padding: 4px 8px;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+        
+        .thumbnail-name {
+          font-size: 14px;
+          font-weight: 500;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        
+        .thumbnail-date {
+          font-size: 12px;
+          color: #777;
+        }
+        
+        @media (prefers-color-scheme: dark) {
+          .image-thumbnail {
+            background-color: #333;
+          }
+          
+          .thumbnail-container {
+            background-color: #222;
+          }
+          
+          .loading-indicator {
+            background-color: rgba(255, 255, 255, 0.1);
+            color: #bbb;
+          }
+          
+          .thumbnail-name {
+            color: #e0e0e0;
+          }
+          
+          .thumbnail-date {
+            color: #999;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+export default ImageThumbnail;
+```
+
+### src/components/ImageViewer.tsx
+
+```
+import _React, { useState, useEffect } from 'react';
+import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import ImageThumbnail, { ImageInfo } from './ImageThumbnail';
+
+// 画像リスト取得結果の型
+interface ImageListResult {
+  images: ImageInfo[];
+  total: number;
+  folders: string[];
+}
+
+// ビューモード
+type ViewMode = 'grid' | 'detail';
+
+// 表示サイズ
+type ThumbnailSize = 'small' | 'medium' | 'large';
+
+// ImageViewerコンポーネントのプロップス
+interface ImageViewerProps {
+  resourceConfig?: {
+    id: string;
+    name: string;
+    filters: {
+      include: string[];
+      exclude: string[];
+    };
+  } | null;
+}
+
+/**
+ * 画像ビューアーコンポーネント
+ */
+export function ImageViewer({ resourceConfig }: ImageViewerProps) {
+  // 状態管理
+  const [images, setImages] = useState<ImageInfo[]>([]);
+  const [totalImages, setTotalImages] = useState<number>(0);
+  const [loadedFolders, setLoadedFolders] = useState<string[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<ImageInfo | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [thumbnailSize, setThumbnailSize] = useState<ThumbnailSize>('medium');
+  
+  // ページネーション
+  const [currentPage, setCurrentPage] = useState<number>(0);
+  const [itemsPerPage, _setItemsPerPage] = useState<number>(50);
+
+  // 初期ロード
+  useEffect(() => {
+    loadImages();
+    
+    // イベントリスナーを設定
+    const unlistenError = listen<string>("image-error", (event) => {
+      setError(event.payload);
+    });
+    
+    return () => {
+      // クリーンアップ
+      unlistenError.then(fn => fn());
+    };
+  }, [resourceConfig]);
+  
+  // ページ変更時の画像読み込み
+  useEffect(() => {
+    loadPagedImages(currentPage);
+  }, [currentPage, itemsPerPage]);
+
+  // 画像リストを読み込む
+  const loadImages = async () => {
+    if (!resourceConfig || resourceConfig.filters.include.length === 0) {
+      setError("有効なリソースフォルダが設定されていません");
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // 最初のページをロード
+      await loadPagedImages(0);
+    } catch (err) {
+      console.error("画像読み込みエラー:", err);
+      setError(`画像の読み込みに失敗しました: ${err}`);
+      setLoading(false);
+    }
+  };
+  
+  // ページングされた画像を読み込む
+  const loadPagedImages = async (page: number) => {
+    try {
+      setLoading(true);
+      
+      const result = await invoke<ImageListResult>("get_paginated_images", {
+        page,
+        itemsPerPage
+      });
+      
+      setImages(result.images);
+      setTotalImages(result.total);
+      setLoadedFolders(result.folders);
+      
+      if (result.images.length > 0 && !selectedImage) {
+        setSelectedImage(result.images[0]);
+      }
+    } catch (err) {
+      console.error("画像ページング読み込みエラー:", err);
+      setError(`画像の読み込みに失敗しました: ${err}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // サムネイルクリック時のハンドラ
+  const handleThumbnailClick = (image: ImageInfo) => {
+    setSelectedImage(image);
+    setViewMode('detail');
+  };
+
+  // 前の画像に移動
+  const goToPreviousImage = () => {
+    if (!selectedImage || images.length === 0) return;
+    
+    const currentIndex = images.findIndex(img => img.path === selectedImage.path);
+    if (currentIndex > 0) {
+      setSelectedImage(images[currentIndex - 1]);
+    } else if (currentPage > 0) {
+      // 前のページの最後の画像に移動
+      setCurrentPage(currentPage - 1);
+      // ページロード後に最後の画像を選択する処理は別途必要
+    }
+  };
+
+  // 次の画像に移動
+  const goToNextImage = () => {
+    if (!selectedImage || images.length === 0) return;
+    
+    const currentIndex = images.findIndex(img => img.path === selectedImage.path);
+    if (currentIndex < images.length - 1) {
+      setSelectedImage(images[currentIndex + 1]);
+    } else if ((currentPage + 1) * itemsPerPage < totalImages) {
+      // 次のページの最初の画像に移動
+      setCurrentPage(currentPage + 1);
+      // ページロード後に最初の画像を選択する処理は別途必要
+    }
+  };
+
+  // グリッド表示に戻る
+  const backToGrid = () => {
+    setViewMode('grid');
+  };
+
+  // サムネイルサイズを変更
+  const changeThumbnailSize = (size: ThumbnailSize) => {
+    setThumbnailSize(size);
+  };
+  
+  // 総ページ数を計算
+  const totalPages = Math.ceil(totalImages / itemsPerPage);
+  
+  // ページを変更
+  const changePage = (page: number) => {
+    if (page >= 0 && page < totalPages) {
+      setCurrentPage(page);
+    }
+  };
+
+  // 詳細表示モード
+  const renderDetailView = () => {
+    if (!selectedImage) return null;
+    
+    const imageUrl = convertFileSrc(selectedImage.path);
+    
+    return (
+      <div className="detail-view">
+        <div className="detail-header">
+          <button onClick={backToGrid} className="back-button">
+            ← グリッドに戻る
+          </button>
+          <div className="image-navigation">
+            <button 
+              onClick={goToPreviousImage} 
+              disabled={currentPage === 0 && images.indexOf(selectedImage) === 0}
+            >
+              前の画像
+            </button>
+            <span className="image-counter">
+              {images.indexOf(selectedImage) + 1 + (currentPage * itemsPerPage)} / {totalImages}
+            </span>
+            <button 
+              onClick={goToNextImage} 
+              disabled={(currentPage + 1) * itemsPerPage >= totalImages && 
+                images.indexOf(selectedImage) === images.length - 1}
+            >
+              次の画像
+            </button>
+          </div>
+        </div>
+        
+        <div className="detail-content">
+          <img src={imageUrl} alt={selectedImage.name} className="detail-image" />
+        </div>
+        
+        <div className="detail-info">
+          <h3>{selectedImage.name}</h3>
+          <p>サイズ: {(selectedImage.size / 1024).toFixed(1)} KB</p>
+          <p>更新日: {new Date(selectedImage.modified * 1000).toLocaleDateString()}</p>
+          <p>タイプ: {selectedImage.extension.toUpperCase()}</p>
+        </div>
+      </div>
+    );
+  };
+
+  // グリッド表示モード
+  const renderGridView = () => {
+    return (
+      <div className="grid-view">
+        <div className="grid-header">
+          <div className="grid-info">
+            <h2>画像ギャラリー</h2>
+            <span>{totalImages} 画像 ({loadedFolders.length} フォルダ)</span>
+          </div>
+          
+          <div className="grid-controls">
+            <div className="size-controls">
+              <button 
+                onClick={() => changeThumbnailSize('small')} 
+                className={thumbnailSize === 'small' ? 'active' : ''}
+              >
+                小
+              </button>
+              <button 
+                onClick={() => changeThumbnailSize('medium')} 
+                className={thumbnailSize === 'medium' ? 'active' : ''}
+              >
+                中
+              </button>
+              <button 
+                onClick={() => changeThumbnailSize('large')} 
+                className={thumbnailSize === 'large' ? 'active' : ''}
+              >
+                大
+              </button>
+            </div>
+            
+            <div className="pagination-controls">
+              <button 
+                onClick={() => changePage(0)} 
+                disabled={currentPage === 0}
+              >
+                &#171; 最初
+              </button>
+              <button 
+                onClick={() => changePage(currentPage - 1)} 
+                disabled={currentPage === 0}
+              >
+                &#8249; 前へ
+              </button>
+              <span>ページ {currentPage + 1} / {totalPages}</span>
+              <button 
+                onClick={() => changePage(currentPage + 1)} 
+                disabled={currentPage >= totalPages - 1}
+              >
+                次へ &#8250;
+              </button>
+              <button 
+                onClick={() => changePage(totalPages - 1)} 
+                disabled={currentPage >= totalPages - 1}
+              >
+                最後 &#187;
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        {loading ? (
+          <div className="loading-container">
+            <p>画像を読み込み中...</p>
+          </div>
+        ) : error ? (
+          <div className="error-container">
+            <p>{error}</p>
+            <button onClick={loadImages}>再試行</button>
+          </div>
+        ) : images.length === 0 ? (
+          <div className="empty-container">
+            <p>画像が見つかりませんでした</p>
+          </div>
+        ) : (
+          <div className={`image-grid size-${thumbnailSize}`}>
+            {images.map((image) => (
+              <ImageThumbnail
+                key={image.path}
+                image={image}
+                selected={selectedImage?.path === image.path}
+                onClick={handleThumbnailClick}
+                size={thumbnailSize}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="image-viewer">
+      {viewMode === 'grid' ? renderGridView() : renderDetailView()}
+      
+      <style>{`
+        .image-viewer {
+          width: 100%;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
+        
+        /* Grid View Styles */
+        .grid-view {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+        }
+        
+        .grid-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 10px;
+          background-color: #f5f5f5;
+          border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .grid-info h2 {
+          margin: 0;
+          margin-bottom: 4px;
+        }
+        
+        .grid-controls {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+        }
+        
+        .size-controls,
+        .pagination-controls {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        
+        .image-grid {
+          display: flex;
+          flex-wrap: wrap;
+          padding: 10px;
+          overflow-y: auto;
+          justify-content: flex-start;
+          align-content: flex-start;
+        }
+        
+        .image-grid.size-small {
+          gap: 4px;
+        }
+        
+        .image-grid.size-medium {
+          gap: 8px;
+        }
+        
+        .image-grid.size-large {
+          gap: 12px;
+        }
+        
+        .loading-container,
+        .error-container,
+        .empty-container {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          padding: 40px;
+          text-align: center;
+        }
+        
+        .error-container {
+          color: #f44336;
+        }
+        
+        /* Detail View Styles */
+        .detail-view {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+        }
+        
+        .detail-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 10px;
+          background-color: #f5f5f5;
+          border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .image-navigation {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        
+        .image-counter {
+          margin: 0 10px;
+        }
+        
+        .detail-content {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background-color: #222;
+          overflow: auto;
+        }
+        
+        .detail-image {
+          max-width: 100%;
+          max-height: 100%;
+          object-fit: contain;
+        }
+        
+        .detail-info {
+          padding: 10px;
+          background-color: #f5f5f5;
+          border-top: 1px solid #e0e0e0;
+        }
+        
+        .detail-info h3 {
+          margin-top: 0;
+          margin-bottom: 8px;
+        }
+        
+        .detail-info p {
+          margin: 4px 0;
+        }
+        
+        button {
+          padding: 6px 12px;
+          border: 1px solid #ccc;
+          background-color: #fff;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+        }
+        
+        button:hover:not(:disabled) {
+          background-color: #f0f0f0;
+        }
+        
+        button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        
+        button.active {
+          background-color: #2196f3;
+          color: white;
+          border-color: #1976d2;
+        }
+        
+        @media (prefers-color-scheme: dark) {
+          .grid-header, .detail-header, .detail-info {
+            background-color: #333;
+            border-color: #444;
+          }
+          
+          .detail-content {
+            background-color: #111;
+          }
+          
+          button {
+            background-color: #444;
+            border-color: #555;
+            color: #e0e0e0;
+          }
+          
+          button:hover:not(:disabled) {
+            background-color: #555;
+          }
+          
+          button.active {
+            background-color: #2196f3;
+            color: white;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+export default ImageViewer;
+```
+
+### src/components/ResourcesConfig.tsx
+
+```
+import { useState, useEffect, FormEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+
+// 設定ファイルの型定義
+interface ResourceConfig {
+  id: string;
+  name: string;
+  filters: {
+    include: string[];
+    exclude: string[];
+  };
+}
+
+// 初期設定
+const defaultConfig: ResourceConfig = {
+  id: "allviewer-resources",
+  name: "AllViewer画像リソース",
+  filters: {
+    include: [],
+    exclude: []
+  }
+};
+
+export function ResourcesConfig() {
+  // 状態管理
+  const [config, setConfig] = useState<ResourceConfig>(defaultConfig);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>("");
+  const [pathStatus, setPathStatus] = useState<string>("");
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isConfigValid, setIsConfigValid] = useState<boolean>(false);
+  
+  // 直接パス入力のための状態
+  const [inputPath, setInputPath] = useState<string>("");
+  const [isInputPathValid, setIsInputPathValid] = useState<boolean>(true);
+  const [inputPathError, setInputPathError] = useState<string>("");
+
+  // 初期ロード
+  useEffect(() => {
+    loadConfig();
+  }, []);
+
+  // 設定の有効性チェックを依存関係として追加
+  useEffect(() => {
+    validateConfig();
+  }, [config]);
+
+  // 設定ファイルをロードする
+  async function loadConfig() {
+    try {
+      setLoading(true);
+      setError("");
+      
+      // バックエンドから設定をロード
+      const loadedConfig = await invoke<ResourceConfig>("load_resource_config");
+      setConfig(loadedConfig);
+      
+      // 設定の有効性をチェック
+      validateConfig(loadedConfig);
+    } catch (err) {
+      setError(`設定ファイルのロードに失敗しました: ${err}`);
+      console.error("Config load error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // 設定の有効性をチェック
+  async function validateConfig(configToValidate?: ResourceConfig) {
+    const configToCheck = configToValidate || config;
+    try {
+      if (configToCheck.filters.include.length === 0) {
+        setPathStatus("リソースフォルダが設定されていません。");
+        setIsConfigValid(false);
+        return;
+      }
+
+      // すべてのパスを検証
+      const results = await Promise.all(
+        configToCheck.filters.include.map(path => 
+          invoke<boolean>("validate_resource_path", { path })
+        )
+      );
+
+      const isValid = results.every(result => result === true);
+      setIsConfigValid(isValid);
+      
+      if (isValid) {
+        setPathStatus("有効なリソースフォルダが設定されています。");
+      } else {
+        setPathStatus("一部のフォルダにアクセスできません。");
+      }
+    } catch (err) {
+      setError(`設定の検証に失敗しました: ${err}`);
+      setIsConfigValid(false);
+    }
+  }
+
+  // フォルダ選択ダイアログを表示
+  async function handleSelectFolder() {
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "リソースフォルダを選択"
+      });
+
+      if (selected && typeof selected === "string") {
+        addPath(selected);
+      }
+    } catch (err) {
+      setError(`フォルダの選択に失敗しました: ${err}`);
+    }
+  }
+
+  // 入力パスの検証
+  async function validateInputPath(path: string): Promise<boolean> {
+    if (!path.trim()) {
+      setInputPathError("パスを入力してください");
+      setIsInputPathValid(false);
+      return false;
+    }
+
+    try {
+      const isValid = await invoke<boolean>("validate_resource_path", { path });
+      setIsInputPathValid(isValid);
+      
+      if (!isValid) {
+        setInputPathError("無効なパスです。読み取り可能なディレクトリを指定してください。");
+      } else {
+        setInputPathError("");
+      }
+      
+      return isValid;
+    } catch (err) {
+      setInputPathError(`パスの検証中にエラーが発生しました: ${err}`);
+      setIsInputPathValid(false);
+      return false;
+    }
+  }
+
+  // 入力パスの変更ハンドラ
+  async function handleInputPathChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const path = e.target.value;
+    setInputPath(path);
+    
+    // 入力が空の場合はエラーをクリア
+    if (!path.trim()) {
+      setInputPathError("");
+      setIsInputPathValid(true);
+      return;
+    }
+    
+    // 短いディレイを入れて、ユーザーが入力を完了するまで検証を遅らせる
+    setTimeout(() => {
+      validateInputPath(path);
+    }, 500);
+  }
+
+  // フォームのサブミットハンドラ
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!inputPath.trim()) return;
+    
+    const isValid = await validateInputPath(inputPath);
+    if (isValid) {
+      addPath(inputPath);
+      setInputPath(""); // 入力をクリア
+    }
+  }
+
+  // パスを追加する共通関数
+  async function addPath(path: string) {
+    // 既に存在するパスなら何もしない
+    if (config.filters.include.includes(path)) {
+      setError("このパスは既に追加されています。");
+      return;
+    }
+
+    // 選択したパスを検証
+    const isValid = await invoke<boolean>("validate_resource_path", { path });
+    
+    if (isValid) {
+      // 設定を更新
+      const updatedConfig = {
+        ...config,
+        filters: {
+          ...config.filters,
+          include: [...config.filters.include, path]
+        }
+      };
+      
+      setConfig(updatedConfig);
+      
+      // 更新された設定を保存
+      await saveConfig(updatedConfig);
+    } else {
+      setError("選択したフォルダは無効です。");
+    }
+  }
+
+  // パスを削除
+  function handleRemovePath(pathToRemove: string) {
+    const updatedConfig = {
+      ...config,
+      filters: {
+        ...config.filters,
+        include: config.filters.include.filter(path => path !== pathToRemove)
+      }
+    };
+    
+    setConfig(updatedConfig);
+    saveConfig(updatedConfig);
+  }
+
+  // 設定を保存
+  async function saveConfig(configToSave?: ResourceConfig) {
+    try {
+      setIsSaving(true);
+      setError("");
+      
+      const configToUpdate = configToSave || config;
+      
+      // バックエンドに保存
+      await invoke("save_resource_config", { config: configToUpdate });
+      
+      setPathStatus("設定を保存しました。");
+    } catch (err) {
+      setError(`設定の保存に失敗しました: ${err}`);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  // サポート関数：パスを短く表示
+  function getDisplayPath(path: string): string {
+    const maxLength = 50;
+    if (path.length <= maxLength) return path;
+    
+    // パスの先頭と末尾を表示し、中間を省略
+    const start = path.substring(0, 20);
+    const end = path.substring(path.length - 27);
+    return `${start}...${end}`;
+  }
+
+  return (
+    <div className="resource-config">
+      <h2>リソース設定</h2>
+      
+      {loading ? (
+        <p>設定を読み込み中...</p>
+      ) : (
+        <>
+          <div className="config-status">
+            <div className={`status-indicator ${isConfigValid ? 'valid' : 'invalid'}`}>
+              {isConfigValid ? '✓' : '⚠'}
+            </div>
+            <span>{pathStatus}</span>
+          </div>
+          
+          {error && (
+            <div className="error-message">
+              <p>{error}</p>
+              <button onClick={() => setError("")}>閉じる</button>
+            </div>
+          )}
+          
+          <div className="resource-folders">
+            <h3>リソースフォルダ</h3>
+            
+            {/* 新しいパス入力フォーム */}
+            <form onSubmit={handleSubmit} className="path-input-form">
+              <div className="input-group">
+                <label htmlFor="path-input">フォルダパス:</label>
+                <div className="path-input-container">
+                  <input
+                    id="path-input"
+                    type="text"
+                    value={inputPath}
+                    onChange={handleInputPathChange}
+                    placeholder="パスを入力または選択してください"
+                    className={!isInputPathValid ? "invalid" : ""}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSelectFolder}
+                    disabled={isSaving}
+                    className="browse-button"
+                  >
+                    参照...
+                  </button>
+                </div>
+              </div>
+              
+              {inputPathError && (
+                <div className="input-error">{inputPathError}</div>
+              )}
+              
+              <button 
+                type="submit"
+                disabled={isSaving || !isInputPathValid || !inputPath.trim()}
+                className="add-path-button"
+              >
+                追加
+              </button>
+            </form>
+            
+            {config.filters.include.length === 0 ? (
+              <p>リソースフォルダが設定されていません。上のフォームからフォルダを追加してください。</p>
+            ) : (
+              <ul className="folder-list">
+                {config.filters.include.map((path, index) => (
+                  <li key={index} className="folder-item">
+                    <span title={path}>{getDisplayPath(path)}</span>
+                    <button 
+                      onClick={() => handleRemovePath(path)}
+                      disabled={isSaving}
+                      className="remove-btn"
+                    >
+                      削除
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            
+            <div className="actions">
+              <button 
+                onClick={() => saveConfig()} 
+                disabled={isSaving || config.filters.include.length === 0}
+                className="save-btn"
+              >
+                設定を保存
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+      
+      <style>{`
+        .resource-config {
+          padding: 1rem;
+          border-radius: 8px;
+          background-color: #ffffff;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          margin-bottom: 1rem;
+        }
+        
+        .config-status {
+          display: flex;
+          align-items: center;
+          margin-bottom: 1rem;
+          padding: 0.5rem;
+          border-radius: 4px;
+          background-color: #f5f5f5;
+        }
+        
+        .status-indicator {
+          display: inline-flex;
+          justify-content: center;
+          align-items: center;
+          width: 24px;
+          height: 24px;
+          border-radius: 50%;
+          margin-right: 0.5rem;
+          font-weight: bold;
+        }
+        
+        .valid {
+          background-color: #4caf50;
+          color: white;
+        }
+        
+        .invalid {
+          background-color: #ff9800;
+          color: white;
+        }
+        
+        .error-message {
+          padding: 0.5rem;
+          border-radius: 4px;
+          background-color: #ffebee;
+          color: #d32f2f;
+          margin-bottom: 1rem;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        
+        .path-input-form {
+          margin-bottom: 1.5rem;
+          background-color: #f9f9f9;
+          padding: 1rem;
+          border-radius: 4px;
+          border: 1px solid #e0e0e0;
+        }
+        
+        .input-group {
+          margin-bottom: 0.5rem;
+        }
+        
+        .path-input-container {
+          display: flex;
+          gap: 8px;
+          margin-top: 4px;
+        }
+        
+        label {
+          display: block;
+          margin-bottom: 0.25rem;
+          font-weight: 500;
+        }
+        
+        input[type="text"] {
+          flex: 1;
+          padding: 0.5rem;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          font-size: 1rem;
+        }
+        
+        input[type="text"].invalid {
+          border-color: #f44336;
+        }
+        
+        .input-error {
+          color: #f44336;
+          font-size: 0.85rem;
+          margin-bottom: 0.5rem;
+        }
+        
+        .browse-button {
+          white-space: nowrap;
+          padding: 0.5rem 1rem;
+          background-color: #f5f5f5;
+          border: 1px solid #ccc;
+        }
+        
+        .add-path-button {
+          padding: 0.5rem 1rem;
+          background-color: #2196f3;
+          color: white;
+          border: none;
+          border-radius: 4px;
+        }
+        
+        .folder-list {
+          list-style: none;
+          padding: 0;
+          margin: 0 0 1rem 0;
+        }
+        
+        .folder-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.5rem;
+          border-radius: 4px;
+          background-color: #f5f5f5;
+          margin-bottom: 0.5rem;
+        }
+        
+        .actions {
+          display: flex;
+          gap: 0.5rem;
+        }
+        
+        button {
+          border-radius: 4px;
+          border: none;
+          padding: 0.5rem 1rem;
+          cursor: pointer;
+          transition: background-color 0.2s;
+        }
+        
+        .save-btn {
+          background-color: #4caf50;
+          color: white;
+        }
+        
+        .remove-btn {
+          background-color: #f44336;
+          color: white;
+          padding: 0.25rem 0.5rem;
+          font-size: 0.8rem;
+        }
+        
+        button:disabled {
+          background-color: #cccccc;
+          cursor: not-allowed;
+        }
+        
+        button:hover:not(:disabled) {
+          opacity: 0.9;
+        }
+        
+        @media (prefers-color-scheme: dark) {
+          .resource-config {
+            background-color: #333;
+            color: #f5f5f5;
+          }
+          
+          .config-status, .folder-item {
+            background-color: #444;
+            color: #f5f5f5;
+          }
+          
+          .error-message {
+            background-color: #4a1c1c;
+            color: #ffcdd2;
+          }
+          
+          .path-input-form {
+            background-color: #3a3a3a;
+            border-color: #555;
+          }
+          
+          input[type="text"] {
+            background-color: #444;
+            color: #fff;
+            border-color: #555;
+          }
+          
+          .browse-button {
+            background-color: #555;
+            color: #fff;
+            border-color: #666;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+export default ResourcesConfig;
+```
+
 ### src/App.css
 
 ```
@@ -644,22 +1894,101 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import ResourcesConfig from "./components/ResourcesConfig";
+import ImageViewer from "./components/ImageViewer"; // 新しく追加
 import "./App.css";
+
+// ResourceConfigの型定義
+interface ResourceConfig {
+  id: string;
+  name: string;
+  filters: {
+    include: string[];
+    exclude: string[];
+  };
+}
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
   const [name, setName] = useState("");
-
   const [fileContent, setFileContent] = useState<string>("");
   const [loadError, setLoadError] = useState<string>("");
+  const [showResourceConfig, setShowResourceConfig] = useState(false);
+  const [resourceConfig, setResourceConfig] = useState<ResourceConfig | null>(null);
+  const [configValid, setConfigValid] = useState<boolean>(false);
+  const [showImageViewer, setShowImageViewer] = useState<boolean>(false); // 新しく追加
   
   // フロントエンド側でClaudeのJSONファイルパスを定義
-  const claudeJsonPath = "/home/wsluser/.claude.json";
+  // const claudeJsonPath = "/home/wsluser/.claude.json";
+  const claudeJsonPath = "/Users/yutakakoach/Library/Application Support/com.tauri-app.app/resources.json";
 
-  // アプリ起動時に自動的にClaudeのJSONファイルを読み込む
+  // アプリ起動時の処理
   useEffect(() => {
-    loadClaudeJson();
+    // 設定の初期化と状態の確認
+    initializeConfig();
+    
+    // Rust側からのイベントリスナーを設定
+    const unlisten1 = listen<boolean>("config-status", (event) => {
+      setConfigValid(event.payload);
+    });
+    
+    const unlisten2 = listen<boolean>("config-required", (event) => {
+      if (event.payload) {
+        setShowResourceConfig(true);
+      }
+    });
+    
+    const unlisten3 = listen<string>("config-error", (event) => {
+      setLoadError(event.payload);
+    });
+    
+    // クリーンアップ時にリスナーを解除
+    return () => {
+      unlisten1.then(fn => fn());
+      unlisten2.then(fn => fn());
+      unlisten3.then(fn => fn());
+    };
   }, []);
+
+  // 設定の初期化
+  async function initializeConfig() {
+    try {
+      const mainWindow = getCurrentWebviewWindow();
+      const config = await invoke<ResourceConfig>("initialize_config", {
+        window: mainWindow
+      });
+      
+      setResourceConfig(config);
+      
+      // 設定が有効であれば設定画面を表示しない
+      if (config.filters.include.length > 0) {
+        const allValid = await Promise.all(
+          config.filters.include.map(path => 
+            invoke<boolean>("validate_resource_path", { path })
+          )
+        ).then(results => results.every(r => r));
+        
+        setConfigValid(allValid);
+        setShowResourceConfig(!allValid);
+        
+        // 設定が有効であれば画像ビューアを表示する
+        setShowImageViewer(allValid);
+      } else {
+        setConfigValid(false);
+        setShowResourceConfig(true);
+        setShowImageViewer(false);
+      }
+      
+      // 従来のClaudeのJSONファイル読み込み
+      loadClaudeJson();
+    } catch (error) {
+      console.error("設定の初期化に失敗:", error);
+      setLoadError(String(error));
+      setShowResourceConfig(true);
+    }
+  }
 
   async function loadClaudeJson() {
     try {
@@ -698,50 +2027,189 @@ function App() {
     }
   };
 
+  // リソース設定画面の表示・非表示を切り替える
+  const toggleResourceConfig = () => {
+    setShowResourceConfig(!showResourceConfig);
+  };
+
+  // 画像ビューアの表示・非表示を切り替える
+  const toggleImageViewer = () => {
+    setShowImageViewer(!showImageViewer);
+  };
+
+  // リソースフォルダの情報を表示
+  const renderResourceInfo = () => {
+    if (!resourceConfig || !configValid) {
+      return <p>有効なリソースフォルダが設定されていません。</p>;
+    }
+    
+    return (
+      <div className="resource-info">
+        <h3>リソースフォルダ定義:</h3>
+        <p><strong>名前:</strong> {resourceConfig.name}</p>
+        <p><strong>フォルダ:</strong></p>
+        <ul>
+          {resourceConfig.filters.include.map((path, index) => (
+            <li key={index}>{path}</li>
+          ))}
+        </ul>
+        <button 
+          onClick={toggleImageViewer} 
+          className="view-images-button"
+        >
+          {showImageViewer ? "画像ビューアを閉じる" : "画像ビューアを開く"}
+        </button>
+      </div>
+    );
+  };
+
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>Hello, {greetMsg}</p>
-
-      <div>
-        <button onClick={handleFileOpen}>Select File</button>
-        <button onClick={loadClaudeJson}>Reload Claude JSON</button>
-        
-        {loadError && (
-          <div style={{ color: "red", marginTop: "10px" }}>
-            <h3>エラー:</h3>
-            <p>{loadError}</p>
-          </div>
-        )}
-        
-        {fileContent && (
-          <div>
-            <h3>FileContent:</h3>
-            <pre>{fileContent}</pre>
-          </div>
-        )}
+      <h1>Poir Viewer</h1>
+      
+      {/* 設定状態バナー */}
+      <div className={`config-banner ${configValid ? 'valid' : 'invalid'}`}>
+        <span>
+          {configValid 
+            ? "✓ リソース設定は有効です" 
+            : "⚠ リソース設定が必要です"}
+        </span>
+        <button onClick={toggleResourceConfig}>
+          {showResourceConfig ? "設定を閉じる" : "設定を開く"}
+        </button>
       </div>
+      
+      {/* リソース設定コンポーネント */}
+      {showResourceConfig && <ResourcesConfig />}
+      
+      {/* リソース情報表示 */}
+      {!showResourceConfig && configValid && renderResourceInfo()}
+      
+      {/* 画像ビューアコンポーネント */}
+      {showImageViewer && configValid && (
+        <div className="image-viewer-container">
+          <ImageViewer resourceConfig={resourceConfig} />
+        </div>
+      )}
+      
+      {/* 既存の機能 - 画像ビューアが表示されていない場合のみ表示 */}
+      {!showImageViewer && (
+        <>
+          <form
+            className="row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              greet();
+            }}
+          >
+            <input
+              id="greet-input"
+              onChange={(e) => setName(e.currentTarget.value)}
+              placeholder="Enter a name..."
+            />
+            <button type="submit">Greet</button>
+          </form>
+          <p>Hello, {greetMsg}</p>
+
+          <div>
+            <button onClick={handleFileOpen}>Select File</button>
+            <button onClick={loadClaudeJson}>Reload Fixed File</button>
+            
+            {loadError && (
+              <div style={{ color: "red", marginTop: "10px" }}>
+                <h3>エラー:</h3>
+                <p>{loadError}</p>
+              </div>
+            )}
+            
+            {fileContent && (
+              <div>
+                <h3>FileContent:</h3>
+                <pre>{fileContent}</pre>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+      
+      <style>{`
+        .config-banner {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 0.5rem 1rem;
+          border-radius: 4px;
+          margin-bottom: 1rem;
+        }
+        
+        .config-banner.valid {
+          background-color: rgba(76, 175, 80, 0.2);
+          border: 1px solid #4caf50;
+        }
+        
+        .config-banner.invalid {
+          background-color: rgba(255, 152, 0, 0.2);
+          border: 1px solid #ff9800;
+        }
+        
+        .resource-info {
+          background-color: #f5f5f5;
+          padding: 1rem;
+          border-radius: 4px;
+          margin-bottom: 1rem;
+        }
+        
+        .resource-info ul {
+          margin: 0;
+          padding-left: 1.5rem;
+        }
+        
+        .view-images-button {
+          margin-top: 1rem;
+          padding: 0.5rem 1rem;
+          background-color: #2196f3;
+          color: white;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        
+        .view-images-button:hover {
+          background-color: #1976d2;
+        }
+        
+        .image-viewer-container {
+          width: 100%;
+          height: calc(100vh - 200px);
+          margin-bottom: 1rem;
+          border: 1px solid #e0e0e0;
+          border-radius: 4px;
+          overflow: hidden;
+        }
+        
+        @media (prefers-color-scheme: dark) {
+          .config-banner.valid {
+            background-color: rgba(76, 175, 80, 0.1);
+          }
+          
+          .config-banner.invalid {
+            background-color: rgba(255, 152, 0, 0.1);
+          }
+          
+          .resource-info {
+            background-color: #333;
+          }
+          
+          .image-viewer-container {
+            border-color: #444;
+          }
+        }
+      `}</style>
     </main>
   );
 }
 
 export default App;
-
 ```
 
 ### src/main.tsx
@@ -783,23 +2251,393 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     "fs:default",
     {
       "identifier": "fs:allow-read-file",
-      "allow": [{ "path": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\wsluser\\.claude.json" }]
+      "allow": [
+        { "path": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\wsluser\\.claude.json" },
+        { "path": "/Users/yutakakoach/.claude.json" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [
+        { "path": "$RESOURCE/resources.json" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [
+        { "path": "$RESOURCE/resources.json" }
+      ]
+    },
+    {
+      "identifier": "core:event:allow-listen",
+      "allow": [
+        "config-status",
+        "config-required",
+        "config-error",
+        "image-loaded",
+        "image-error"
+      ]
+    },
+    {
+      "identifier": "core:event:allow-emit",
+      "allow": [
+        "config-status",
+        "config-required",
+        "config-error",
+        "image-loaded",
+        "image-error"
+      ]
     }
   ]
 }
+```
 
+### src-tauri/src/config.rs
+
+```
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager};
+
+// resources.jsonの内容を表す構造体
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ResourceConfig {
+    pub id: String,
+    pub name: String,
+    pub filters: Filters,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Filters {
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+}
+
+impl Default for ResourceConfig {
+    fn default() -> Self {
+        Self {
+            id: "allviewer-resources".to_string(),
+            name: "AllViewer画像リソース".to_string(),
+            filters: Filters {
+                include: Vec::new(),
+                exclude: Vec::new(),
+            },
+        }
+    }
+}
+
+impl ResourceConfig {
+    // 設定ファイルのパスを取得
+    pub fn get_config_path(app_handle: &AppHandle) -> PathBuf {
+        let app_dir = app_handle.path().app_data_dir().unwrap_or_else(|_| {
+            // アプリディレクトリが取得できない場合は実行ファイルのディレクトリを使用
+            let exe_dir = std::env::current_exe()
+                .unwrap_or_default()
+                .parent()
+                .unwrap_or(Path::new("."))
+                .to_path_buf();
+            exe_dir
+        });
+        app_dir.join("resources.json")
+    }
+
+    // 設定ファイルの存在確認、なければデフォルト作成
+    pub fn ensure_config_exists(app_handle: &AppHandle) -> Result<(), String> {
+        let config_path = Self::get_config_path(app_handle);
+        
+        // ディレクトリが存在するか確認し、存在しない場合は作成する
+        if let Some(parent_dir) = config_path.parent() {
+            if !parent_dir.exists() {
+                fs::create_dir_all(parent_dir)
+                    .map_err(|e| format!("ディレクトリの作成に失敗 ({}): {}", parent_dir.display(), e))?;
+                println!("アプリディレクトリを作成しました: {}", parent_dir.display());
+            }
+        }
+        
+        if !config_path.exists() {
+            let default_config = Self::default();
+            let config_json = serde_json::to_string_pretty(&default_config)
+                .map_err(|e| format!("デフォルト設定のシリアライズに失敗: {}", e))?;
+            
+            fs::write(&config_path, config_json)
+                .map_err(|e| format!("設定ファイルの作成に失敗 ({}): {}", config_path.display(), e))?;
+            
+            println!("デフォルト設定ファイルを作成しました: {}", config_path.display());
+        }
+        
+        Ok(())
+    }
+
+    // 設定ファイルを読み込む
+    pub fn load(app_handle: &AppHandle) -> Result<Self, String> {
+        Self::ensure_config_exists(app_handle)?;
+        
+        let config_path = Self::get_config_path(app_handle);
+        let config_str = fs::read_to_string(&config_path)
+            .map_err(|e| format!("設定ファイルの読み込みに失敗: {}", e))?;
+            
+        let config: ResourceConfig = serde_json::from_str(&config_str)
+            .map_err(|e| format!("JSONのパースに失敗: {}", e))?;
+            
+        Ok(config)
+    }
+
+    // 設定ファイルを保存する
+    pub fn save(&self, app_handle: &AppHandle) -> Result<(), String> {
+        let config_path = Self::get_config_path(app_handle);
+        let config_json = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("設定のシリアライズに失敗: {}", e))?;
+            
+        fs::write(&config_path, config_json)
+            .map_err(|e| format!("設定ファイルの保存に失敗: {}", e))?;
+            
+        Ok(())
+    }
+
+    // パスの有効性チェック
+    pub fn validate_path(path: &str) -> Result<(), String> {
+        let path = Path::new(path);
+        
+        if !path.exists() {
+            return Err(format!("パスが存在しません: {}", path.display()));
+        }
+        
+        if !path.is_dir() {
+            return Err(format!("パスはディレクトリではありません: {}", path.display()));
+        }
+        
+        // 読み取り権限チェック (ディレクトリの内容リストを取得してみる)
+        match fs::read_dir(path) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(format!("ディレクトリにアクセスできません: {}", e)),
+        }
+    }
+
+    // // パスを追加する (バリデーション付き)
+    // pub fn add_include_path(&mut self, path: String) -> Result<(), String> {
+    //     Self::validate_path(&path)?;
+        
+    //     // 重複チェック
+    //     if !self.filters.include.contains(&path) {
+    //         self.filters.include.push(path);
+    //     }
+        
+    //     Ok(())
+    // }
+
+    // 設定の有効性チェック
+    pub fn is_valid(&self) -> bool {
+        !self.filters.include.is_empty() && 
+        self.filters.include.iter().all(|path| {
+            Self::validate_path(path).is_ok()
+        })
+    }
+}
+```
+
+### src-tauri/src/image.rs
+
+```
+use std::fs;
+use std::path::{Path, PathBuf};
+use serde::{Serialize, Deserialize};
+use tauri::AppHandle;
+use crate::config::ResourceConfig;
+
+/// 画像ファイルに関する情報を格納する構造体
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ImageInfo {
+    /// ファイルの絶対パス
+    pub path: String,
+    /// ファイル名
+    pub name: String,
+    /// ファイルサイズ（バイト）
+    pub size: u64,
+    /// 最終更新日時（Unix時間）
+    pub modified: u64,
+    /// 画像の種類（拡張子）
+    pub extension: String,
+}
+
+/// 画像一覧の取得結果
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ImageListResult {
+    /// 取得された画像一覧
+    pub images: Vec<ImageInfo>,
+    /// 総画像数
+    pub total: usize,
+    /// 処理されたフォルダ
+    pub folders: Vec<String>,
+}
+
+/// 画像ファイルのフィルタリング条件
+const IMAGE_EXTENSIONS: [&str; 6] = ["jpg", "jpeg", "png", "gif", "webp", "bmp"];
+
+/// 与えられたパスが画像ファイルかどうかを判定する
+fn is_image_file(path: &Path) -> bool {
+    if let Some(extension) = path.extension() {
+        if let Some(ext_str) = extension.to_str() {
+            return IMAGE_EXTENSIONS.contains(&ext_str.to_lowercase().as_str());
+        }
+    }
+    false
+}
+
+/// 指定されたディレクトリから画像ファイルを再帰的に取得する
+fn get_images_from_directory(dir_path: &Path, max_depth: usize, current_depth: usize) -> Result<Vec<ImageInfo>, String> {
+    if current_depth > max_depth {
+        return Ok(Vec::new());
+    }
+
+    if !dir_path.exists() || !dir_path.is_dir() {
+        return Err(format!("指定されたパスはディレクトリではありません: {}", dir_path.display()));
+    }
+
+    let mut images = Vec::new();
+
+    let entries = fs::read_dir(dir_path)
+        .map_err(|e| format!("ディレクトリの読み取りに失敗: {} - {}", dir_path.display(), e))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("エントリの読み取りに失敗: {}", e))?;
+        let path = entry.path();
+
+        if path.is_dir() && current_depth < max_depth {
+            // 再帰的にサブディレクトリを処理
+            match get_images_from_directory(&path, max_depth, current_depth + 1) {
+                Ok(sub_images) => images.extend(sub_images),
+                Err(e) => eprintln!("サブディレクトリの処理中にエラー: {}", e),
+            }
+        } else if path.is_file() && is_image_file(&path) {
+            // 画像ファイルの情報を取得
+            let metadata = fs::metadata(&path)
+                .map_err(|e| format!("ファイルのメタデータ取得に失敗: {} - {}", path.display(), e))?;
+            
+            let modified = metadata.modified()
+                .map_err(|e| format!("更新日時の取得に失敗: {}", e))?
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| format!("時間変換エラー: {}", e))?
+                .as_secs();
+            
+            let extension = path.extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            
+            let name = path.file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("")
+                .to_string();
+            
+            images.push(ImageInfo {
+                path: path.to_string_lossy().to_string(),
+                name,
+                size: metadata.len(),
+                modified,
+                extension,
+            });
+        }
+    }
+
+    Ok(images)
+}
+
+/// resources.jsonの設定から画像ファイルのリストを取得する
+#[tauri::command]
+pub async fn get_image_list(app_handle: AppHandle, max_depth: Option<usize>) -> Result<ImageListResult, String> {
+    // 設定ファイルを読み込む
+    let config = ResourceConfig::load(&app_handle)?;
+    
+    // 設定が有効かチェック
+    if config.filters.include.is_empty() {
+        return Err("画像フォルダが設定されていません".to_string());
+    }
+    
+    let max_search_depth = max_depth.unwrap_or(3); // デフォルトの深さを3に設定
+    let mut all_images = Vec::new();
+    let mut processed_folders = Vec::new();
+    
+    // includeに含まれる各ディレクトリを処理
+    for dir in &config.filters.include {
+        let dir_path = PathBuf::from(dir);
+        if !dir_path.exists() || !dir_path.is_dir() {
+            eprintln!("ディレクトリが存在しません: {}", dir);
+            continue;
+        }
+        
+        match get_images_from_directory(&dir_path, max_search_depth, 0) {
+            Ok(images) => {
+                all_images.extend(images);
+                processed_folders.push(dir.clone());
+            },
+            Err(e) => {
+                eprintln!("画像リストの取得中にエラー: {}", e);
+            }
+        }
+    }
+    
+    // 結果を日付順にソート（新しい順）
+    all_images.sort_by(|a, b| b.modified.cmp(&a.modified));
+    
+    Ok(ImageListResult {
+        images: all_images.clone(),
+        total: all_images.len(),
+        folders: processed_folders,
+    })
+}
+
+/// 指定された画像ファイルのパスが有効かどうかを検証する
+#[tauri::command]
+pub fn validate_image_path(path: String) -> bool {
+    let file_path = Path::new(&path);
+    file_path.exists() && file_path.is_file() && is_image_file(file_path)
+}
+
+/// 画像リストをページング処理して返す
+#[tauri::command]
+pub async fn get_paginated_images(
+    app_handle: AppHandle, 
+    page: usize, 
+    items_per_page: usize
+) -> Result<ImageListResult, String> {
+    let full_list = get_image_list(app_handle, Some(3)).await?;
+    
+    let start_index = page * items_per_page;
+    let end_index = std::cmp::min(start_index + items_per_page, full_list.images.len());
+    
+    if start_index >= full_list.images.len() {
+        return Ok(ImageListResult {
+            images: Vec::new(),
+            total: full_list.total,
+            folders: full_list.folders,
+        });
+    }
+    
+    Ok(ImageListResult {
+        images: full_list.images[start_index..end_index].to_vec(),
+        total: full_list.total,
+        folders: full_list.folders,
+    })
+}
 ```
 
 ### src-tauri/src/lib.rs
 
 ```
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod config;
+mod image;
+
+use config::ResourceConfig;
+use tauri::{Manager, Window, Emitter};
+
+// 既存のgreetコマンド
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-// パスを受け取るように変更したコマンド
+// 既存のファイル読み込みコマンド
 #[tauri::command]
 async fn read_file_content(file_path: String) -> Result<String, String> {
     use std::fs;
@@ -814,13 +2652,145 @@ async fn read_file_content(file_path: String) -> Result<String, String> {
     }
 }
 
+// リソース設定ファイルを読み込む
+#[tauri::command]
+async fn load_resource_config(app_handle: tauri::AppHandle) -> Result<ResourceConfig, String> {
+    // 設定ファイル読み込み
+    ResourceConfig::load(&app_handle)
+}
+
+// リソース設定ファイルを保存する
+#[tauri::command]
+async fn save_resource_config(
+    app_handle: tauri::AppHandle,
+    config: ResourceConfig
+) -> Result<(), String> {
+    // 設定ファイル保存
+    config.save(&app_handle)
+}
+
+// パスの有効性を確認するコマンド
+#[tauri::command]
+async fn validate_resource_path(path: String) -> bool {
+    // 入力されたパスが空の場合は無効とみなす
+    if path.is_empty() {
+        return false;
+    }
+    
+    // パスの有効性チェック
+    ResourceConfig::validate_path(&path).is_ok()
+}
+
+// パスを直接追加するコマンド
+#[tauri::command]
+async fn add_resource_path(app_handle: tauri::AppHandle, path: String) -> Result<(), String> {
+    // パスの有効性を確認
+    ResourceConfig::validate_path(&path)?;
+    
+    // 現在の設定を読み込む
+    let mut config = ResourceConfig::load(&app_handle)?;
+    
+    // 重複チェックを行い、パスを追加
+    if !config.filters.include.contains(&path) {
+        config.filters.include.push(path);
+        
+        // 設定を保存
+        config.save(&app_handle)?;
+    }
+    
+    Ok(())
+}
+
+// 起動時に設定を初期化し、その状態を通知する
+#[tauri::command]
+async fn initialize_config(
+    window: Window,
+    app_handle: tauri::AppHandle
+) -> Result<ResourceConfig, String> {
+    // 設定ファイルの存在確認・作成
+    ResourceConfig::ensure_config_exists(&app_handle)?;
+    
+    // 設定を読み込む
+    let config = ResourceConfig::load(&app_handle)?;
+    
+    // 設定の有効性を確認
+    let is_valid = config.is_valid();
+    
+    // 設定状態をフロントエンドに通知
+    window.emit("config-status", is_valid)
+        .map_err(|e| format!("設定状態の通知に失敗: {}", e))?;
+    
+    // 有効でない場合、設定が必要であることをフロントエンドに通知
+    if !is_valid {
+        window.emit("config-required", true)
+            .map_err(|e| format!("設定要求の通知に失敗: {}", e))?;
+    }
+    
+    Ok(config)
+}
+
+// アプリケーションの実行ファイルのディレクトリパスを取得する
+#[tauri::command]
+fn get_executable_dir() -> Result<String, String> {
+    std::env::current_exe()
+        .map_err(|e| format!("実行ファイルパスの取得に失敗: {}", e))
+        .and_then(|path| {
+            path.parent()
+                .ok_or_else(|| "実行ファイルの親ディレクトリが存在しません".to_string())
+                .map(|p| p.to_string_lossy().to_string())
+        })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, read_file_content])
+        .setup(|app| {
+            // アプリケーション起動時に設定ファイルの存在確認を行う
+            let app_handle = app.handle();
+            
+            match ResourceConfig::ensure_config_exists(&app_handle) {
+                Ok(_) => println!("設定ファイルの初期化に成功しました"),
+                Err(e) => eprintln!("設定ファイルの初期化に失敗しました: {}", e),
+            }
+            
+            // メインウィンドウの取得
+            if let Some(main_window) = app.get_webview_window("main") {
+                // 設定状態をチェックして通知
+                match ResourceConfig::load(&app_handle) {
+                    Ok(config) => {
+                        let is_valid = config.is_valid();
+                        let _ = main_window.emit("config-status", is_valid);
+                        
+                        if !is_valid {
+                            let _ = main_window.emit("config-required", true);
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("設定の読み込みに失敗しました: {}", e);
+                        let _ = main_window.emit("config-error", e);
+                    }
+                }
+            }
+            
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            read_file_content,
+            load_resource_config,
+            save_resource_config,
+            initialize_config,
+            get_executable_dir,
+            validate_resource_path,
+            add_resource_path,
+            // 新しい画像関連のコマンドを登録
+            image::get_image_list,
+            image::validate_image_path,
+            image::get_paginated_images
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -847,7 +2817,6 @@ mod tests {
         assert_eq!(result, "Hello, 123!@#! You've been greeted from Rust!");
     }
 }
-
 ```
 
 ### src-tauri/src/main.rs
@@ -859,6 +2828,21 @@ mod tests {
 fn main() {
     tauri_app_lib::run()
 }
+
+```
+
+### src-tauri/target/.rustc_info.json
+
+```
+{"rustc_fingerprint":3863641508227995382,"outputs":{"13331785392996375709":{"success":true,"status":"","code":0,"stdout":"___\nlib___.rlib\nlib___.dylib\nlib___.dylib\nlib___.a\nlib___.dylib\n/Users/yutakakoach/.rustup/toolchains/stable-x86_64-apple-darwin\noff\npacked\nunpacked\n___\ndebug_assertions\npanic=\"unwind\"\nproc_macro\ntarget_abi=\"\"\ntarget_arch=\"x86_64\"\ntarget_endian=\"little\"\ntarget_env=\"\"\ntarget_family=\"unix\"\ntarget_feature=\"cmpxchg16b\"\ntarget_feature=\"fxsr\"\ntarget_feature=\"sse\"\ntarget_feature=\"sse2\"\ntarget_feature=\"sse3\"\ntarget_feature=\"sse4.1\"\ntarget_feature=\"ssse3\"\ntarget_has_atomic=\"128\"\ntarget_has_atomic=\"16\"\ntarget_has_atomic=\"32\"\ntarget_has_atomic=\"64\"\ntarget_has_atomic=\"8\"\ntarget_has_atomic=\"ptr\"\ntarget_os=\"macos\"\ntarget_pointer_width=\"64\"\ntarget_vendor=\"apple\"\nunix\n","stderr":""},"17747080675513052775":{"success":true,"status":"","code":0,"stdout":"rustc 1.85.0 (4d91de4e4 2025-02-17)\nbinary: rustc\ncommit-hash: 4d91de4e48198da2e33413efdcd9cd2cc0c46688\ncommit-date: 2025-02-17\nhost: x86_64-apple-darwin\nrelease: 1.85.0\nLLVM version: 19.1.7\n","stderr":""}},"successes":{}}
+```
+
+### src-tauri/target/CACHEDIR.TAG
+
+```
+Signature: 8a477f597d28d172789f06886806bc55
+# This file is a cache directory tag created by cargo.
+# For information about cache directory tags see https://bford.info/cachedir/
 
 ```
 
@@ -898,7 +2882,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -926,9 +2910,9 @@ fn main() {
   "version": "0.1.0",
   "identifier": "com.tauri-app.app",
   "build": {
-    "beforeDevCommand": "yarn dev",
+    "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "yarn build",
+    "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -940,7 +2924,11 @@ fn main() {
       }
     ],
     "security": {
-      "csp": null
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      },
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost"
     }
   },
   "bundle": {
@@ -1041,7 +3029,7 @@ This template should help get you started developing with Tauri, React and Types
     "name": "AllViewer画像リソース",
     "filters": {
       "include": [
-        "\\\\wsl.localhost\\Ubuntu-24.04\\home\\wsluser\\temp-image\\plugin-viewers-image"
+        "/Users/yutakakoach/Pictures/Photos Library.photoslibrary/originals"
       ],
       "exclude": []
     }

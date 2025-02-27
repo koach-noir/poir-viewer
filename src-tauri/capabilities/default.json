@@ -12,7 +12,42 @@
     "fs:default",
     {
       "identifier": "fs:allow-read-file",
-      "allow": [{ "path": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\wsluser\\.claude.json" }]
+      "allow": [
+        { "path": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\wsluser\\.claude.json" },
+        { "path": "/Users/yutakakoach/.claude.json" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [
+        { "path": "$RESOURCE/resources.json" }
+      ]
+    },
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [
+        { "path": "$RESOURCE/resources.json" }
+      ]
+    },
+    {
+      "identifier": "core:event:allow-listen",
+      "allow": [
+        "config-status",
+        "config-required",
+        "config-error",
+        "image-loaded",
+        "image-error"
+      ]
+    },
+    {
+      "identifier": "core:event:allow-emit",
+      "allow": [
+        "config-status",
+        "config-required",
+        "config-error",
+        "image-loaded",
+        "image-error"
+      ]
     }
   ]
 }

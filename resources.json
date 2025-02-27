@@ -3,7 +3,7 @@
     "name": "AllViewer画像リソース",
     "filters": {
       "include": [
-        "\\\\wsl.localhost\\Ubuntu-24.04\\home\\wsluser\\temp-image\\plugin-viewers-image"
+        "/Users/yutakakoach/Pictures/Photos Library.photoslibrary/originals"
       ],
       "exclude": []
     }
