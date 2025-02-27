@@ -53,6 +53,7 @@
   - index.html
   - package.json
   - resources.json
+  - test-claude.json
   - tsconfig.json
   - tsconfig.node.json
   - vite.config.ts
@@ -67,12 +68,25 @@
 ## スタートデモアプリ済み
 
 - dirダイアログから選択したファイルの内容（テキスト）を画面表示する
+- "\\wsl.localhost\Ubuntu-24.04\home\wsluser\.claude.json" このファイルの中身を起動時に自動ロード、表示
+- 
 
 # NEXT
 
-## 下記ファイルを自動読み込み表示したい
+## 下記ファイルの自動読み込み表示したい
 
-- "\\wsl.localhost\Ubuntu-24.04\home\wsluser\.claude.json"
+（プロジェクトルート）resources.json
+
+{
+    "id": "allviewer-resources",
+    "name": "AllViewer画像リソース",
+    "filters": {
+      "include": [
+        "\\\\wsl.localhost\\Ubuntu-24.04\\home\\wsluser\\temp-image\\plugin-viewers-image"
+      ],
+      "exclude": []
+    }
+}
 
 ```
 
@@ -626,7 +640,7 @@ button {
 ### src/App.tsx
 
 ```
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readTextFile } from "@tauri-apps/plugin-fs";
@@ -637,6 +651,29 @@ function App() {
   const [name, setName] = useState("");
 
   const [fileContent, setFileContent] = useState<string>("");
+  const [loadError, setLoadError] = useState<string>("");
+  
+  // フロントエンド側でClaudeのJSONファイルパスを定義
+  const claudeJsonPath = "/home/wsluser/.claude.json";
+
+  // アプリ起動時に自動的にClaudeのJSONファイルを読み込む
+  useEffect(() => {
+    loadClaudeJson();
+  }, []);
+
+  async function loadClaudeJson() {
+    try {
+      // 定義したパスをRust側に渡す
+      const content = await invoke<string>("read_file_content", { 
+        filePath: claudeJsonPath
+      });
+      setFileContent(content);
+      setLoadError("");
+    } catch (error) {
+      console.error("Error loading Claude JSON:", error);
+      setLoadError(String(error));
+    }
+  }
 
   async function greet() {
     // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -653,9 +690,11 @@ function App() {
       if (selected && typeof selected === "string") {
         const content = await readTextFile(selected);
         setFileContent(content);
+        setLoadError("");
       }
     } catch (error) {
       console.error("Error has occured when read file: ", error);
+      setLoadError(String(error));
     }
   };
 
@@ -681,6 +720,15 @@ function App() {
 
       <div>
         <button onClick={handleFileOpen}>Select File</button>
+        <button onClick={loadClaudeJson}>Reload Claude JSON</button>
+        
+        {loadError && (
+          <div style={{ color: "red", marginTop: "10px" }}>
+            <h3>エラー:</h3>
+            <p>{loadError}</p>
+          </div>
+        )}
+        
         {fileContent && (
           <div>
             <h3>FileContent:</h3>
@@ -732,9 +780,14 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     "core:default",
     "opener:default",
     "dialog:default",
-    "fs:default"
+    "fs:default",
+    {
+      "identifier": "fs:allow-read-file",
+      "allow": [{ "path": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\wsluser\\.claude.json" }]
+    }
   ]
 }
+
 ```
 
 ### src-tauri/src/lib.rs
@@ -746,13 +799,28 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
+// パスを受け取るように変更したコマンド
+#[tauri::command]
+async fn read_file_content(file_path: String) -> Result<String, String> {
+    use std::fs;
+    
+    // 受け取ったパスでファイルを読み込む
+    match fs::read_to_string(&file_path) {
+        Ok(content) => Ok(content),
+        Err(e) => {
+            // エラーの詳細を返す
+            Err(format!("Failed to read file: {} - {}", file_path, e))
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![greet, read_file_content])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -777,7 +845,6 @@ mod tests {
     fn test_greet_special_characters() {
         let result = greet("123!@#");
         assert_eq!(result, "Hello, 123!@#! You've been greeted from Rust!");
-
     }
 }
 
@@ -978,6 +1045,15 @@ This template should help get you started developing with Tauri, React and Types
       ],
       "exclude": []
     }
+}
+
+```
+
+### test-claude.json
+
+```
+{
+    "test": "/home/wsluser/output/poir-viewer/test-claude.json"
 }
 
 ```

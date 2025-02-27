@@ -10,38 +10,31 @@ function App() {
 
   const [fileContent, setFileContent] = useState<string>("");
   const [loadError, setLoadError] = useState<string>("");
-  const [pathInfo, setPathInfo] = useState<string>("");
+  
+  // フロントエンド側でClaudeのJSONファイルパスを定義
+  const claudeJsonPath = "/home/wsluser/.claude.json";
 
-  // アプリ起動時に自動的にテストを実行
+  // アプリ起動時に自動的にClaudeのJSONファイルを読み込む
   useEffect(() => {
-    checkPaths();
-    loadTestFile();
+    loadClaudeJson();
   }, []);
 
-  async function checkPaths() {
+  async function loadClaudeJson() {
     try {
-      // パス情報を確認
-      const paths = await invoke<string>("check_paths");
-      setPathInfo(paths);
-    } catch (error) {
-      console.error("Error checking paths:", error);
-      setPathInfo(`Error: ${error}`);
-    }
-  }
-
-  async function loadTestFile() {
-    try {
-      // テストファイルを読み込む
-      const content = await invoke<string>("read_test_file");
+      // 定義したパスをRust側に渡す
+      const content = await invoke<string>("read_file_content", { 
+        filePath: claudeJsonPath
+      });
       setFileContent(content);
       setLoadError("");
     } catch (error) {
-      console.error("Error loading test file:", error);
+      console.error("Error loading Claude JSON:", error);
       setLoadError(String(error));
     }
   }
 
   async function greet() {
+    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
     setGreetMsg(await invoke("greet", { name }));
   }
 
@@ -85,15 +78,7 @@ function App() {
 
       <div>
         <button onClick={handleFileOpen}>Select File</button>
-        <button onClick={loadTestFile}>Load Test File</button>
-        <button onClick={checkPaths}>Check Paths</button>
-        
-        {pathInfo && (
-          <div>
-            <h3>Path Information:</h3>
-            <pre>{pathInfo}</pre>
-          </div>
-        )}
+        <button onClick={loadClaudeJson}>Reload Claude JSON</button>
         
         {loadError && (
           <div style={{ color: "red", marginTop: "10px" }}>
