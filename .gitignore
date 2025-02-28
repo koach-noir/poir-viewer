@@ -27,3 +27,7 @@ dist-ssr
 **/Trash/*.*
 **/Trash/
 **/Trash/**
+poir-viewer_project_summary.md
+poir-viewer_project_summary copy.md
+.venv/
+

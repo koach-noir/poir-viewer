@@ -73,3 +73,5 @@ CHANGELOG.md
 **/Trash/**
 *_project_summary.*
 *_project_summary copy.*
+.venv/
+.venv/**

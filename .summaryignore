@@ -61,3 +61,5 @@ src/assets/*.svg
 .design/DDS/*.*
 *_project_summary.*
 *_project_summary copy.*
+.venv/
+.venv/**
