@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+*_project_summary.*
+*_project_summary copy.*
+**/Trash/*.*
+**/Trash/
+**/Trash/**

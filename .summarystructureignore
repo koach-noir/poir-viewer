@@ -66,9 +66,10 @@ pnpm-lock.yaml
 README.md
 LICENSE
 CHANGELOG.md
-**/*.md
 /.summaryignore
 /.summarystructureignore
 **/Trash/*.*
 **/Trash/
 **/Trash/**
+*_project_summary.*
+*_project_summary copy.*

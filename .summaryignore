@@ -57,3 +57,7 @@ design/Reference Technical Articles/*.*
 public/*.svg
 src/assets/*.svg
 .dev/*.*
+.design/*.*
+.design/DDS/*.*
+*_project_summary.*
+*_project_summary copy.*
