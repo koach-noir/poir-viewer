@@ -5,7 +5,7 @@ import { readTextFile } from "@tauri-apps/plugin-fs";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import ResourcesConfig from "./components/ResourcesConfig";
-import ImageViewer from "./components/ImageViewer"; // 新しく追加
+import ImageViewer from "./components/ImageViewer";
 import "./App.css";
 
 // ResourceConfigの型定義
@@ -26,16 +26,33 @@ function App() {
   const [showResourceConfig, setShowResourceConfig] = useState(false);
   const [resourceConfig, setResourceConfig] = useState<ResourceConfig | null>(null);
   const [configValid, setConfigValid] = useState<boolean>(false);
-  const [showImageViewer, setShowImageViewer] = useState<boolean>(false); // 新しく追加
-  
-  // フロントエンド側でClaudeのJSONファイルパスを定義
-  // const claudeJsonPath = "/home/wsluser/.claude.json";
-  const claudeJsonPath = "/Users/yutakakoach/Library/Application Support/com.tauri-app.app/resources.json";
+  const [showImageViewer, setShowImageViewer] = useState<boolean>(false);
+  const [resourcesJsonPath, setResourcesJsonPath] = useState<string>("");
+  const [isLoadingPath, setIsLoadingPath] = useState<boolean>(true);
 
   // アプリ起動時の処理
   useEffect(() => {
+    // 設定ファイルパスの取得
+    async function fetchConfigPath() {
+      try {
+        setIsLoadingPath(true);
+        // Rust側の関数を呼び出して設定ファイルのパスを取得
+        const configPath = await invoke<string>("get_config_path");
+        setResourcesJsonPath(configPath);
+        console.log("設定ファイルパス:", configPath);
+      } catch (error) {
+        console.error("設定ファイルパスの取得に失敗:", error);
+        setLoadError(`設定ファイルパスの取得に失敗: ${error}`);
+      } finally {
+        setIsLoadingPath(false);
+      }
+    }
+
+    // パスを取得してから設定を初期化
+    fetchConfigPath().then(() => {
     // 設定の初期化と状態の確認
     initializeConfig();
+    });
     
     // Rust側からのイベントリスナーを設定
     const unlisten1 = listen<boolean>("config-status", (event) => {
@@ -89,8 +106,10 @@ function App() {
         setShowImageViewer(false);
       }
       
-      // 従来のClaudeのJSONファイル読み込み
+      // 設定ファイルパスが取得できていれば読み込み処理を実行
+      if (resourcesJsonPath) {
       loadClaudeJson();
+      }
     } catch (error) {
       console.error("設定の初期化に失敗:", error);
       setLoadError(String(error));
@@ -100,9 +119,14 @@ function App() {
 
   async function loadClaudeJson() {
     try {
+      if (!resourcesJsonPath) {
+        console.warn("設定ファイルパスが未設定です");
+        return;
+      }
+
       // 定義したパスをRust側に渡す
       const content = await invoke<string>("read_file_content", { 
-        filePath: claudeJsonPath
+        filePath: resourcesJsonPath
       });
       setFileContent(content);
       setLoadError("");
@@ -178,14 +202,23 @@ function App() {
       {/* 設定状態バナー */}
       <div className={`config-banner ${configValid ? 'valid' : 'invalid'}`}>
         <span>
-          {configValid 
+          {isLoadingPath 
+            ? "設定ファイルパスを読み込み中..." 
+            : configValid 
             ? "✓ リソース設定は有効です" 
             : "⚠ リソース設定が必要です"}
         </span>
-        <button onClick={toggleResourceConfig}>
+        <button onClick={toggleResourceConfig} disabled={isLoadingPath}>
           {showResourceConfig ? "設定を閉じる" : "設定を開く"}
         </button>
       </div>
+      
+      {/* 設定ファイルパス情報の表示 */}
+      {resourcesJsonPath && (
+        <div className="path-info">
+          <p>設定ファイルのパス: <code>{resourcesJsonPath}</code></p>
+        </div>
+      )}
       
       {/* リソース設定コンポーネント */}
       {showResourceConfig && <ResourcesConfig />}
@@ -221,7 +254,9 @@ function App() {
 
           <div>
             <button onClick={handleFileOpen}>Select File</button>
-            <button onClick={loadClaudeJson}>Reload Fixed File</button>
+            <button onClick={loadClaudeJson} disabled={!resourcesJsonPath || isLoadingPath}>
+              Reload Fixed File
+            </button>
             
             {loadError && (
               <div style={{ color: "red", marginTop: "10px" }}>
@@ -258,6 +293,22 @@ function App() {
         .config-banner.invalid {
           background-color: rgba(255, 152, 0, 0.2);
           border: 1px solid #ff9800;
+        }
+        
+        .path-info {
+          background-color: #f5f5f5;
+          padding: 0.5rem 1rem;
+          border-radius: 4px;
+          margin-bottom: 1rem;
+          font-size: 0.9rem;
+        }
+        
+        .path-info code {
+          background-color: #e0e0e0;
+          padding: 0.1rem 0.3rem;
+          border-radius: 3px;
+          font-family: monospace;
+          word-break: break-all;
         }
         
         .resource-info {
@@ -302,6 +353,15 @@ function App() {
           
           .config-banner.invalid {
             background-color: rgba(255, 152, 0, 0.1);
+          }
+          
+          .path-info {
+            background-color: #333;
+          }
+          
+          .path-info code {
+            background-color: #444;
+            color: #e0e0e0;
           }
           
           .resource-info {

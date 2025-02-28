@@ -52,7 +52,6 @@
       - image.rs
       - lib.rs
       - main.rs
-    - target/
     - .gitignore
     - Cargo.toml
     - build.rs
@@ -1897,7 +1896,7 @@ import { readTextFile } from "@tauri-apps/plugin-fs";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import ResourcesConfig from "./components/ResourcesConfig";
-import ImageViewer from "./components/ImageViewer"; // 新しく追加
+import ImageViewer from "./components/ImageViewer";
 import "./App.css";
 
 // ResourceConfigの型定義
@@ -1918,16 +1917,33 @@ function App() {
   const [showResourceConfig, setShowResourceConfig] = useState(false);
   const [resourceConfig, setResourceConfig] = useState<ResourceConfig | null>(null);
   const [configValid, setConfigValid] = useState<boolean>(false);
-  const [showImageViewer, setShowImageViewer] = useState<boolean>(false); // 新しく追加
-  
-  // フロントエンド側でClaudeのJSONファイルパスを定義
-  // const claudeJsonPath = "/home/wsluser/.claude.json";
-  const claudeJsonPath = "/Users/yutakakoach/Library/Application Support/com.tauri-app.app/resources.json";
+  const [showImageViewer, setShowImageViewer] = useState<boolean>(false);
+  const [resourcesJsonPath, setResourcesJsonPath] = useState<string>("");
+  const [isLoadingPath, setIsLoadingPath] = useState<boolean>(true);
 
   // アプリ起動時の処理
   useEffect(() => {
+    // 設定ファイルパスの取得
+    async function fetchConfigPath() {
+      try {
+        setIsLoadingPath(true);
+        // Rust側の関数を呼び出して設定ファイルのパスを取得
+        const configPath = await invoke<string>("get_config_path");
+        setResourcesJsonPath(configPath);
+        console.log("設定ファイルパス:", configPath);
+      } catch (error) {
+        console.error("設定ファイルパスの取得に失敗:", error);
+        setLoadError(`設定ファイルパスの取得に失敗: ${error}`);
+      } finally {
+        setIsLoadingPath(false);
+      }
+    }
+
+    // パスを取得してから設定を初期化
+    fetchConfigPath().then(() => {
     // 設定の初期化と状態の確認
     initializeConfig();
+    });
     
     // Rust側からのイベントリスナーを設定
     const unlisten1 = listen<boolean>("config-status", (event) => {
@@ -1981,8 +1997,10 @@ function App() {
         setShowImageViewer(false);
       }
       
-      // 従来のClaudeのJSONファイル読み込み
+      // 設定ファイルパスが取得できていれば読み込み処理を実行
+      if (resourcesJsonPath) {
       loadClaudeJson();
+      }
     } catch (error) {
       console.error("設定の初期化に失敗:", error);
       setLoadError(String(error));
@@ -1992,9 +2010,14 @@ function App() {
 
   async function loadClaudeJson() {
     try {
+      if (!resourcesJsonPath) {
+        console.warn("設定ファイルパスが未設定です");
+        return;
+      }
+
       // 定義したパスをRust側に渡す
       const content = await invoke<string>("read_file_content", { 
-        filePath: claudeJsonPath
+        filePath: resourcesJsonPath
       });
       setFileContent(content);
       setLoadError("");
@@ -2070,14 +2093,23 @@ function App() {
       {/* 設定状態バナー */}
       <div className={`config-banner ${configValid ? 'valid' : 'invalid'}`}>
         <span>
-          {configValid 
+          {isLoadingPath 
+            ? "設定ファイルパスを読み込み中..." 
+            : configValid 
             ? "✓ リソース設定は有効です" 
             : "⚠ リソース設定が必要です"}
         </span>
-        <button onClick={toggleResourceConfig}>
+        <button onClick={toggleResourceConfig} disabled={isLoadingPath}>
           {showResourceConfig ? "設定を閉じる" : "設定を開く"}
         </button>
       </div>
+      
+      {/* 設定ファイルパス情報の表示 */}
+      {resourcesJsonPath && (
+        <div className="path-info">
+          <p>設定ファイルのパス: <code>{resourcesJsonPath}</code></p>
+        </div>
+      )}
       
       {/* リソース設定コンポーネント */}
       {showResourceConfig && <ResourcesConfig />}
@@ -2113,7 +2145,9 @@ function App() {
 
           <div>
             <button onClick={handleFileOpen}>Select File</button>
-            <button onClick={loadClaudeJson}>Reload Fixed File</button>
+            <button onClick={loadClaudeJson} disabled={!resourcesJsonPath || isLoadingPath}>
+              Reload Fixed File
+            </button>
             
             {loadError && (
               <div style={{ color: "red", marginTop: "10px" }}>
@@ -2150,6 +2184,22 @@ function App() {
         .config-banner.invalid {
           background-color: rgba(255, 152, 0, 0.2);
           border: 1px solid #ff9800;
+        }
+        
+        .path-info {
+          background-color: #f5f5f5;
+          padding: 0.5rem 1rem;
+          border-radius: 4px;
+          margin-bottom: 1rem;
+          font-size: 0.9rem;
+        }
+        
+        .path-info code {
+          background-color: #e0e0e0;
+          padding: 0.1rem 0.3rem;
+          border-radius: 3px;
+          font-family: monospace;
+          word-break: break-all;
         }
         
         .resource-info {
@@ -2196,6 +2246,15 @@ function App() {
             background-color: rgba(255, 152, 0, 0.1);
           }
           
+          .path-info {
+            background-color: #333;
+          }
+          
+          .path-info code {
+            background-color: #444;
+            color: #e0e0e0;
+          }
+          
           .resource-info {
             background-color: #333;
           }
@@ -2210,6 +2269,7 @@ function App() {
 }
 
 export default App;
+
 ```
 
 ### src/main.tsx
@@ -2652,6 +2712,15 @@ async fn read_file_content(file_path: String) -> Result<String, String> {
     }
 }
 
+// 設定ファイルのパスを取得する新しいコマンド
+#[tauri::command]
+async fn get_config_path(app_handle: tauri::AppHandle) -> Result<String, String> {
+    let path = ResourceConfig::get_config_path(&app_handle);
+    path.to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Failed to convert path to string".to_string())
+}
+
 // リソース設定ファイルを読み込む
 #[tauri::command]
 async fn load_resource_config(app_handle: tauri::AppHandle) -> Result<ResourceConfig, String> {
@@ -2817,6 +2886,7 @@ mod tests {
         assert_eq!(result, "Hello, 123!@#! You've been greeted from Rust!");
     }
 }
+
 ```
 
 ### src-tauri/src/main.rs
@@ -2828,21 +2898,6 @@ mod tests {
 fn main() {
     tauri_app_lib::run()
 }
-
-```
-
-### src-tauri/target/.rustc_info.json
-
-```
-{"rustc_fingerprint":3863641508227995382,"outputs":{"13331785392996375709":{"success":true,"status":"","code":0,"stdout":"___\nlib___.rlib\nlib___.dylib\nlib___.dylib\nlib___.a\nlib___.dylib\n/Users/yutakakoach/.rustup/toolchains/stable-x86_64-apple-darwin\noff\npacked\nunpacked\n___\ndebug_assertions\npanic=\"unwind\"\nproc_macro\ntarget_abi=\"\"\ntarget_arch=\"x86_64\"\ntarget_endian=\"little\"\ntarget_env=\"\"\ntarget_family=\"unix\"\ntarget_feature=\"cmpxchg16b\"\ntarget_feature=\"fxsr\"\ntarget_feature=\"sse\"\ntarget_feature=\"sse2\"\ntarget_feature=\"sse3\"\ntarget_feature=\"sse4.1\"\ntarget_feature=\"ssse3\"\ntarget_has_atomic=\"128\"\ntarget_has_atomic=\"16\"\ntarget_has_atomic=\"32\"\ntarget_has_atomic=\"64\"\ntarget_has_atomic=\"8\"\ntarget_has_atomic=\"ptr\"\ntarget_os=\"macos\"\ntarget_pointer_width=\"64\"\ntarget_vendor=\"apple\"\nunix\n","stderr":""},"17747080675513052775":{"success":true,"status":"","code":0,"stdout":"rustc 1.85.0 (4d91de4e4 2025-02-17)\nbinary: rustc\ncommit-hash: 4d91de4e48198da2e33413efdcd9cd2cc0c46688\ncommit-date: 2025-02-17\nhost: x86_64-apple-darwin\nrelease: 1.85.0\nLLVM version: 19.1.7\n","stderr":""}},"successes":{}}
-```
-
-### src-tauri/target/CACHEDIR.TAG
-
-```
-Signature: 8a477f597d28d172789f06886806bc55
-# This file is a cache directory tag created by cargo.
-# For information about cache directory tags see https://bford.info/cachedir/
 
 ```
 

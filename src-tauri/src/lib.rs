@@ -25,6 +25,15 @@ async fn read_file_content(file_path: String) -> Result<String, String> {
     }
 }
 
+// 設定ファイルのパスを取得する新しいコマンド
+#[tauri::command]
+async fn get_config_path(app_handle: tauri::AppHandle) -> Result<String, String> {
+    let path = ResourceConfig::get_config_path(&app_handle);
+    path.to_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| "Failed to convert path to string".to_string())
+}
+
 // リソース設定ファイルを読み込む
 #[tauri::command]
 async fn load_resource_config(app_handle: tauri::AppHandle) -> Result<ResourceConfig, String> {
