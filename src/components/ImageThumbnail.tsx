@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import _React, { useState } from 'react';
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 // 画像情報の型定義
