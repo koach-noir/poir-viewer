@@ -8,9 +8,7 @@
   - .github/
     - workflows/
       - build.yml
-      - build.yml:Zone.Identifier
       - release.yml
-      - release.yml:Zone.Identifier
   - .vscode/
   - public/
     - tauri.svg
@@ -88,10 +86,16 @@
 ```
 name: Build Application
 
+# 環境変数の定義
+env:
+  NODE_VERSION: '20.x'
+  PNPM_VERSION: '10.4.1'
+  RUST_TOOLCHAIN: 'stable'
+
+# トリガー条件
 on:
   push:
     branches: [ main ]
-    # コミットメッセージに [build] タグがあるときのみ実行
     paths-ignore:
       - '**.md'
       - 'docs/**'
@@ -114,19 +118,21 @@ on:
         - linux
 
 jobs:
+  # ビルド実行の判断
   check-commit-message:
     runs-on: ubuntu-latest
     outputs:
       should-run: ${{ steps.check.outputs.should-run }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # すべてのコミット履歴をフェッチ
-      - id: check
+          fetch-depth: 2  # 直前のコミットを取得するために必要
+
+      - name: Check commit message for build tag
+        id: check
         run: |
           echo "GitHub Event: ${{ github.event_name }}"
-          COMMIT_MSG=$(git log -1 --pretty=%B)
-          echo "Commit Message: $COMMIT_MSG"
           
           # 手動実行の場合は常に実行
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
@@ -135,30 +141,25 @@ jobs:
             exit 0
           fi
           
-          # コミットメッセージをチェック（大文字小文字を区別しない）
+          # コミットメッセージをチェック
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Commit Message: $COMMIT_MSG"
+          
           if [[ "${COMMIT_MSG^^}" == *"[BUILD]"* ]]; then
             echo "Build tag detected"
             echo "should-run=true" >> $GITHUB_OUTPUT
           else
-            echo "No build tag"
+            echo "No build tag found"
             echo "should-run=false" >> $GITHUB_OUTPUT
           fi
-          
-          # 不確定な状態の場合はデフォルトで実行
-          if [[ "${{ steps.check.outputs.should-run }}" == "" ]]; then
-            echo "Defaulting to run due to uncertain state"
-            echo "should-run=true" >> $GITHUB_OUTPUT
-          fi
-        continue-on-error: true
-        
+  
+  # アプリケーションビルド
   build:
     needs: check-commit-message
-    # check-commit-messageジョブの結果に基づいて実行するかどうかを決定
     if: ${{ needs.check-commit-message.outputs.should-run == 'true' }}
     strategy:
       fail-fast: false
       matrix:
-        platform: [windows-latest, macos-latest, ubuntu-latest]
         include:
           - platform: windows-latest
             name: windows
@@ -167,38 +168,36 @@ jobs:
           - platform: ubuntu-latest
             name: linux
     
-    # 手動実行で特定のプラットフォームが選択された場合のフィルタリング
-    # すでにcheck-commit-messageでワークフロー全体の実行可否は判断しているので
-    # ここではプラットフォームの選択だけをフィルタリング
     runs-on: ${{ matrix.platform }}
     
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       
       - name: Check platform selection
-        # 手動実行時のプラットフォーム選択をチェック
-        # 選択されたプラットフォームのみを実行
+        id: platform-check
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.platform != 'all' && github.event.inputs.platform != matrix.name }}
         run: |
           echo "Skipping build for ${{ matrix.name }} platform as per selection"
-          exit 1
+          exit 0
       
+      # Node.js環境の設定
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: ${{ env.NODE_VERSION }}
       
+      # pnpmのインストールと設定
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
-          version: 10.4.1
+          version: ${{ env.PNPM_VERSION }}
           run_install: false
       
       - name: Get pnpm store directory
         id: pnpm-cache
         shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
           
       - name: Setup pnpm cache
         uses: actions/cache@v4
@@ -209,18 +208,21 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install
       
+      # Rust環境の設定
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
       
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
       
       # Windows固有の設定
-      - name: Install WebView2
+      - name: Install WebView2 (Windows)
         if: matrix.platform == 'windows-latest'
         run: |
           $installer = "$env:TEMP\MicrosoftEdgeWebView2Setup.exe"
@@ -241,48 +243,65 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       
+      # Tauri CLIのインストール
       - name: Install Tauri CLI
         run: pnpm add -D @tauri-apps/cli
       
-      - name: Show Node.js and pnpm versions
+      - name: Show environment info
         run: |
           node --version
           pnpm --version
-          cat package.json
-          cat pnpm-lock.yaml
+          rustc --version
+          cargo --version
           
+      # アプリのビルド
       - name: Build the app
+        id: build
         run: pnpm tauri build
+        continue-on-error: false
       
       # Windows用アーティファクトのアップロード
       - name: Upload Windows artifacts
-        if: matrix.platform == 'windows-latest'
+        if: matrix.platform == 'windows-latest' && steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: |
             src-tauri/target/release/bundle/msi/*.msi
             src-tauri/target/release/bundle/nsis/*.exe
+          retention-days: 7
       
       # macOS用アーティファクトのアップロード
       - name: Upload macOS artifacts
-        if: matrix.platform == 'macos-latest'
+        if: matrix.platform == 'macos-latest' && steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: macos-installer
           path: |
             src-tauri/target/release/bundle/dmg/*.dmg
             src-tauri/target/release/bundle/macos/*.app
+          retention-days: 7
       
       # Linux用アーティファクトのアップロード
       - name: Upload Linux artifacts
-        if: matrix.platform == 'ubuntu-latest'
+        if: matrix.platform == 'ubuntu-latest' && steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: linux-installer
           path: |
             src-tauri/target/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/appimage/*.AppImage
+          retention-days: 7
+
+      # ビルド結果の通知（Slackやメール通知などを追加可能）
+      - name: Notify build status
+        if: always()
+        run: |
+          if [[ "${{ steps.build.outcome }}" == "success" ]]; then
+            echo "✅ Build successful for ${{ matrix.name }}"
+          else
+            echo "❌ Build failed for ${{ matrix.name }}"
+          fi
 
 ```
 
@@ -291,6 +310,15 @@ jobs:
 ```
 name: Release
 
+# 環境変数の定義
+env:
+  NODE_VERSION: '20.x'
+  PNPM_VERSION: '10.4.1'
+  RUST_TOOLCHAIN: 'stable'
+  DRAFT_RELEASE: true  # リリースをドラフトとして作成するかどうか
+  PRERELEASE: false    # プレリリースとしてマークするかどうか
+
+# トリガー条件
 on:
   push:
     tags:
@@ -314,26 +342,31 @@ on:
         - linux
 
 jobs:
+  # リリース作成ジョブ
   create-release:
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.create-release.outputs.id }}
       upload_url: ${{ steps.create-release.outputs.upload_url }}
-      version: ${{ steps.get-version.outputs.version }}
+      version: ${{ steps.set-version.outputs.version }}
     
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       
+      # タグからバージョンを取得
       - name: Get version from tag
         id: get-version
         if: startsWith(github.ref, 'refs/tags/')
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
       
+      # 手動入力からバージョンを取得
       - name: Get version from input
         id: get-input-version
         if: github.event_name == 'workflow_dispatch'
         run: echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
       
+      # 最終バージョンを設定
       - name: Set final version
         id: set-version
         run: |
@@ -343,23 +376,35 @@ jobs:
             echo "version=${{ steps.get-input-version.outputs.version }}" >> $GITHUB_OUTPUT
           fi
       
-      - name: Create Release
+      # リリース作成（GitHub Scriptを使用した最新の方法）
+      - name: Create GitHub Release
         id: create-release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: actions/github-script@v7
         with:
-          tag_name: v${{ steps.set-version.outputs.version }}
-          release_name: Release v${{ steps.set-version.outputs.version }}
-          draft: true
-          prerelease: false
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { data } = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: `v${process.env.VERSION}`,
+              name: `Release v${process.env.VERSION}`,
+              draft: ${{ env.DRAFT_RELEASE }},
+              prerelease: ${{ env.PRERELEASE }},
+              generate_release_notes: true
+            });
+            
+            core.setOutput('id', data.id);
+            core.setOutput('upload_url', data.upload_url);
+            return data;
+        env:
+          VERSION: ${{ steps.set-version.outputs.version }}
 
+  # ビルドとリリースアセット作成ジョブ
   build-release:
     needs: create-release
     strategy:
       fail-fast: false
       matrix:
-        platform: [windows-latest, macos-latest, ubuntu-latest]
         include:
           - platform: windows-latest
             name: windows
@@ -378,29 +423,31 @@ jobs:
             asset_name: image-viewer-linux-x64
     
     # 手動実行で特定のプラットフォームが選択された場合、その条件に合致するものだけを実行
-    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.name }}
+    if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.name || github.event_name == 'push' }}
     
     runs-on: ${{ matrix.platform }}
     
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
       
+      # Node.js環境の設定
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: ${{ env.NODE_VERSION }}
       
+      # pnpmのインストールと設定
       - name: Install pnpm
         uses: pnpm/action-setup@v2
         with:
-          version: 10.4.1
+          version: ${{ env.PNPM_VERSION }}
           run_install: false
       
       - name: Get pnpm store directory
         id: pnpm-cache
         shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+        run: echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
           
       - name: Setup pnpm cache
         uses: actions/cache@v4
@@ -413,16 +460,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install
       
+      # Rust環境の設定
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
       
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
       
       # Windows固有の設定
-      - name: Install WebView2
+      - name: Install WebView2 (Windows)
         if: matrix.platform == 'windows-latest'
         run: |
           $installer = "$env:TEMP\MicrosoftEdgeWebView2Setup.exe"
@@ -443,43 +493,65 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
       
+      # Tauri CLIのインストール
       - name: Install Tauri CLI
         run: pnpm add -D @tauri-apps/cli
       
+      # アプリのビルドと署名
       - name: Build the app
+        id: build
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        run: pnpm tauri build
+          # バージョン情報を環境変数として設定
+          APP_VERSION: ${{ needs.create-release.outputs.version }}
+        run: |
+          echo "Building version $APP_VERSION for ${{ matrix.name }}"
+          pnpm tauri build
       
+      # リリースアーカイブの作成
       - name: Create release archives
+        id: create-archives
         shell: bash
         run: |
           mkdir -p release-archives
           
+          # プラットフォームに応じたファイル処理
           if [ "${{ matrix.platform }}" = "windows-latest" ]; then
             # Windows インストーラーを移動
             cp src-tauri/target/release/bundle/msi/*.msi release-archives/${{ matrix.asset_name }}.msi
             cp src-tauri/target/release/bundle/nsis/*.exe release-archives/${{ matrix.asset_name }}-setup.exe
+            echo "Created Windows installers"
           elif [ "${{ matrix.platform }}" = "macos-latest" ]; then
             # macOS バンドルを移動
             cp -r src-tauri/target/release/bundle/dmg/*.dmg release-archives/${{ matrix.asset_name }}.dmg
+            echo "Created macOS DMG"
+            
             # Universal Binary ビルド結果を移動 (もし設定していれば)
             if [ -d "src-tauri/target/universal-apple-darwin/release/bundle/dmg" ]; then
               cp -r src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg release-archives/${{ matrix.asset_name }}-universal.dmg
+              echo "Created Universal macOS DMG"
             fi
           elif [ "${{ matrix.platform }}" = "ubuntu-latest" ]; then
             # Linux パッケージを移動
             cp src-tauri/target/release/bundle/deb/*.deb release-archives/${{ matrix.asset_name }}.deb
             cp src-tauri/target/release/bundle/appimage/*.AppImage release-archives/${{ matrix.asset_name }}.AppImage
+            echo "Created Linux packages"
           fi
+          
+          # ファイル一覧を表示
+          echo "Created files:"
+          ls -la release-archives/
       
-      - name: Upload artifacts
+      # アーティファクトのアップロード
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: release-archives
-      
+          retention-days: 7
+
+  # リリースアセットの公開ジョブ
   publish-release:
     needs: [create-release, build-release]
     runs-on: ubuntu-latest
@@ -494,24 +566,56 @@ jobs:
         run: |
           mkdir -p release-assets
           find artifacts -type f -exec cp {} release-assets/ \;
+          echo "Prepared release assets:"
           ls -la release-assets/
       
-      - name: Publish release assets
-        uses: softprops/action-gh-release@v1
+      # GitHub Scriptを使用してリリースアセットをアップロード
+      - name: Upload release assets
+        uses: actions/github-script@v7
         with:
-          files: release-assets/*
-          tag_name: v${{ needs.create-release.outputs.version }}
-          draft: true
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // リリースアセットのディレクトリ
+            const assetDir = 'release-assets';
+            const files = fs.readdirSync(assetDir);
+            
+            // 各ファイルをリリースにアップロード
+            for (const file of files) {
+              const filePath = path.join(assetDir, file);
+              
+              console.log(`Uploading ${filePath}...`);
+              
+              // ファイルをリリースにアップロード
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: ${{ needs.create-release.outputs.release_id }},
+                name: file,
+                data: fs.readFileSync(filePath)
+              });
+            }
+            
+            console.log('All assets uploaded successfully!');
+
+      # リリース結果の通知
+      - name: Notify release completion
+        run: |
+          echo "✅ Release v${{ needs.create-release.outputs.version }} has been published!"
+          echo "Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.create-release.outputs.version }}"
+          
+          if [[ "${{ env.DRAFT_RELEASE }}" == "true" ]]; then
+            echo "This is a draft release. Please review and publish it manually."
+          fi
 
 ```
 
 ### src/components/ImageThumbnail.tsx
 
 ```
-import React, { useState } from 'react';
+import _React, { useState } from 'react';
 import { convertFileSrc } from "@tauri-apps/api/core";
 
 // 画像情報の型定義
@@ -716,6 +820,7 @@ export function ImageThumbnail({ image, selected, onClick, size = 'medium' }: Im
 }
 
 export default ImageThumbnail;
+
 ```
 
 ### src/components/ImageViewer.tsx

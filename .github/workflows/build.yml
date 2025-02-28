@@ -210,6 +210,7 @@ jobs:
       # ビルド結果の通知（Slackやメール通知などを追加可能）
       - name: Notify build status
         if: always()
+        shell: bash
         run: |
           if [[ "${{ steps.build.outcome }}" == "success" ]]; then
             echo "✅ Build successful for ${{ matrix.name }}"
